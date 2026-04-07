@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # 1. DATA LAKE: MinIO (S3 Compatible) per i dati grezzi (Airbnb, Zillow)
+  minio:
+    image: minio/minio:latest
+    container_name: bdt_minio
+    ports:
+      - "9000:9000" # API Port
+      - "9001:9001" # Web Console Port
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  # 2. PROCESSING ENGINE: JupyterLab con PySpark pre-installato
+  pyspark:
+    image: jupyter/pyspark-notebook:latest
+    container_name: bdt_pyspark
+    ports:
+      - "8888:8888" # JupyterLab Web UI
+      - "4040:4040" # Spark UI (per monitorare i job)
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_TOKEN=bigdata123
+    volumes:
+      - ./notebooks:/home/jovyan/work
+      - ./data:/home/jovyan/work/data # Per caricare eventuali file locali
+    depends_on:
+      - minio
+      - postgres
+
+  # 3. SERVING LAYER: PostgreSQL per i dati processati e l'indice di stress
+  postgres:
+    image: postgres:15
+    container_name: bdt_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=bdt_admin
+      - POSTGRES_PASSWORD=bdt_password
+      - POSTGRES_DB=rental_observatory
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # 4. FRONTEND: Streamlit per la Dashboard
+  frontend:
+    image: python:3.9-slim
+    container_name: bdt_streamlit
+    ports:
+      - "8501:8501" # Streamlit Web UI
+    volumes:
+      - ./app:/app
+    working_dir: /app
+    # Installa le librerie necessarie e avvia l'app
+    command: bash -c "pip install streamlit psycopg2-binary pandas plotly && streamlit run dashboard.py --server.address=0.0.0.0"
+    depends_on:
+      - postgres
+
+volumes:
+  minio_data:
+  pgdata:
