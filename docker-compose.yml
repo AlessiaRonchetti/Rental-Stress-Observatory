@@ -4,7 +4,7 @@ services:
   # 1. DATA LAKE: MinIO (S3 Compatible) per i dati grezzi (Airbnb, Zillow)
   minio:
     image: minio/minio:latest
-    container_name: bdt_minio
+    container_name: minio
     ports:
       - "9000:9000" # API Port
       - "9001:9001" # Web Console Port
@@ -13,12 +13,12 @@ services:
       - MINIO_ROOT_PASSWORD=password123
     command: server /data --console-address ":9001"
     volumes:
-      - minio_data:/data
+      - ./minio_data:/data # persistent data on local disk
 
   # 2. PROCESSING ENGINE: JupyterLab con PySpark pre-installato
   pyspark:
     image: jupyter/pyspark-notebook:latest
-    container_name: bdt_pyspark
+    container_name: pyspark
     ports:
       - "8888:8888" # JupyterLab Web UI
       - "4040:4040" # Spark UI (per monitorare i job)
@@ -26,9 +26,8 @@ services:
       - JUPYTER_ENABLE_LAB=yes
       - JUPYTER_TOKEN=bigdata123
     volumes:
-      - ./notebooks:/home/jovyan/work
-      - ./data:/home/jovyan/work/data # Per caricare eventuali file locali
-      - ivy_cache:/home/jovyan/.ivy2  #cache so Spark downloads dependencies ONCE
+      - .:/home/jovyan/work
+      - ./spark_jars:/tmp/spark_jars # persistent jars on local disk
     depends_on:
       - minio
       - postgres
@@ -36,7 +35,7 @@ services:
   # 3. SERVING LAYER: PostgreSQL per i dati processati e l'indice di stress
   postgres:
     image: postgres:15
-    container_name: bdt_postgres
+    container_name: postgres
     ports:
       - "5432:5432"
     environment:
@@ -49,7 +48,7 @@ services:
   # 4. FRONTEND: Streamlit per la Dashboard
   frontend:
     image: python:3.9-slim
-    container_name: bdt_streamlit
+    container_name: streamlit
     ports:
       - "8501:8501" # Streamlit Web UI
     volumes:
@@ -61,6 +60,4 @@ services:
       - postgres
 
 volumes:
-  minio_data:
   pgdata:
-  ivy_cache:
