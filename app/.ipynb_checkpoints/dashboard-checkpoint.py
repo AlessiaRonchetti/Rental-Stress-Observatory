@@ -177,12 +177,12 @@ st.dataframe(top10, use_container_width=True)
 
 st.divider()
 
-# Scatter plot — Correlazione Airbnb vs Stress
-scatter_df = zip_stress.dropna(subset=["rent_burden_pct"]).copy()
-scatter_df["avg_occupancy_pct"] = scatter_df["avg_occupancy_pct"].fillna(0)  # NaN → 0
-
+# ============================================================
+# SCATTER PLOT — CORRELAZIONE AIRBNB VS STRESS
+# ============================================================
+st.subheader("📈 Correlation: Airbnb Listings vs Rent Burden")
 fig_scatter = px.scatter(
-    scatter_df,
+    zip_stress.dropna(subset=["rent_burden_pct"]),
     x="num_airbnb_listings",
     y="rent_burden_pct",
     color="neighbourhood_group_cleansed",
