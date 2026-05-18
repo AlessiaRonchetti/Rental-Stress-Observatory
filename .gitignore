@@ -1,3 +1,4 @@
 data/raw/
 minio_data/
 spark_jars/
+.env

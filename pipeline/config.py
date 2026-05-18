@@ -84,3 +84,4 @@ FILES = {
 # che abbiamo definito in FILES, non con il nome originale
 
 #da creare start.py, per ora testiamo su pyspark
+CENSUS_API_KEY = os.getenv("CENSUS_API_KEY", "")

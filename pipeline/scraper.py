@@ -31,7 +31,7 @@ sys.path.insert(0, "/app")
 
 from pipeline.config import (
     DATA_RAW_PATH, FILES, KAFKA_BROKER, KAFKA_TOPIC,
-    CHECK_INTERVAL_HOURS
+    CHECK_INTERVAL_HOURS, CENSUS_API_KEY
 )
 
 #configura il sistema di logging
@@ -256,24 +256,25 @@ def get_zillow_latest_column() -> str:
     response = requests.get(ZILLOW_URL, stream=True, timeout=30)
     response.raise_for_status()
 
-    #Read only the first 2KB - enough for the header row
+    # Read chunks until we find a newline (end of header row)
     first_chunk = b""
     for chunk in response.iter_content(chunk_size=1024):
         first_chunk += chunk
-        if b"\n" in first_chunk:#appena vado a capo fermatii abbiamo letto la prima riga
+        if b"\n" in first_chunk:
             break
-        response.close()
-    #l'header (prima riga) contiene i nomi delle colonne — tra cui tutte le date disponibili.
-        first_line = first_chunk.split(b"\n")[0].decode("utf-8", errors="replace")
-        columns = [c.strip().strip('"') for c in first_line.split(",")]
+    response.close()
 
-        #Find the last column matching YYYY-MM-DD
-        date_cols = [c for c in columns if re.match(r"^\d{4}-\d{2}-\d{2}$", c)] #"Per ogni c in columns, se c matcha il pattern, metti c nel risultato"
-        if not date_cols:
-            return ""
-        latest = sorted(date_cols)[-1]
-        log.info(f"Latest Zillow column found: {latest}")
-        return latest
+    # The header contains all column names including all available dates
+    first_line = first_chunk.split(b"\n")[0].decode("utf-8", errors="replace")
+    columns = [c.strip().strip('"') for c in first_line.split(",")]
+
+    # Find the last column matching YYYY-MM-DD
+    date_cols = [c for c in columns if re.match(r"^\d{4}-\d{2}-\d{2}$", c)]
+    if not date_cols:
+        return ""
+    latest = sorted(date_cols)[-1]
+    log.info(f"Latest Zillow column found: {latest}")
+    return latest
 
 def scrape_zillow(state:dict) -> bool:
     """
@@ -314,6 +315,7 @@ def get_latest_census_year() -> int:
             params = {
                 "get": "B19013_001E",
                 "for": "zip code tabulation area:10001",
+                "key": CENSUS_API_KEY,
             }
             r = requests.get(url, params=params, timeout=15)
             if r.status_code == 200:
@@ -340,7 +342,8 @@ def download_census_variable(year: int, variable: str, label: str) -> list:
     url = f"{CENSUS_BASE_URL}/{year}/acs/acs5"
     params = {
         "get": f"GEO_ID,{variable}",
-        "for": "zip code tabulation area:*"
+        "for": "zip code tabulation area:*",
+        "key": CENSUS_API_KEY,
     }
 
     response = requests.get(url, params=params, timeout=120)
