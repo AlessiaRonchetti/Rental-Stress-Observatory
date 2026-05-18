@@ -613,33 +613,33 @@ def run():
     """
     log.info("=== Processing started ===")
 
-    # Step 0 — Download JARs if needed
+    #Download JARs if needed
     ensure_jars()
 
-    # Step 1 — Create Spark session
+    #Create Spark session
     spark = create_spark_session()
 
     try:
-        # Step 2 — Load Bronze layer
+        # Load Bronze layer
         pop_df, income_df, zillow_df, listings_df, calendar_df = load_bronze(spark)
 
-        # Step 3 — Bronze → Silver
+        # Bronze → Silver
         log.info("Building Silver layer...")
         census_pop      = process_census_population(pop_df)
         census_inc      = process_census_income(income_df)
         zillow          = process_zillow(zillow_df)
         airbnb_enriched = build_airbnb_enriched(listings_df, calendar_df)
 
-        # Step 4 — Save Silver
+        # Save Silver
         save_silver(census_pop, census_inc, zillow, airbnb_enriched)
 
-        # Step 5 — Silver → Gold
+        #  Silver → Gold
         log.info("Building Gold layer...")
         gold_economic                  = build_gold_economic_profile(census_pop, census_inc, zillow)
         borough_summary, airbnb_pressure = build_gold_borough_summary(airbnb_enriched)
         airbnb_with_zip, zip_summary   = build_gold_spatial(spark, airbnb_enriched, gold_economic)
 
-        # Step 6 — Save Gold
+        # Save Gold
         save_gold(gold_economic, borough_summary, airbnb_pressure, airbnb_with_zip, zip_summary)
 
         log.info("=== Processing complete ===")
