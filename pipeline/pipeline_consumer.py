@@ -41,7 +41,7 @@ def wait_for_kafka(retries=10, delay=10):
                 bootstrap_servers=KAFKA_BROKER,
                 group_id=KAFKA_GROUP,
                 value_deserializer=lambda v: json.loads(v.decode("utf-8")),#Kafka trasmette i messaggi come bytes — non come stringhe o dizionari Python. Questo parametro dice a Kafka come convertire ogni messaggio ricevuto
-                auto_offset_reset="latest"#legge solo i messaggi nuovi da quando si è connesso,
+                auto_offset_reset="latest",#legge solo i messaggi nuovi da quando si è connesso,
                 enable_auto_commit=True#Con True Kafka salva automaticamente l'offset ogni volta che leggiamo un messaggio. 
                 #Questo significa che se il consumer crasha e si riavvia, 
                 #ricomincia dal punto dove si era fermato invece di rileggere tutto dall'inizio,
