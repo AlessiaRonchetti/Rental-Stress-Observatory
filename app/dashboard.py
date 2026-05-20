@@ -8,7 +8,6 @@ import requests
 #Page config 
 st.set_page_config(
     page_title="NYC Rental Stress Observatory",
-    page_icon="🏙️",
     layout="wide"
 )
 #PostgreSQL connection
@@ -50,7 +49,7 @@ def load_geojson():
     return r.json()
 
 #Header
-st.title("🏙️ NYC Rental Market Stress Observatory")
+st.title("NYC Rental Market Stress Observatory")
 st.markdown("Monitoring the impact of short-term rentals on housing affordability in New York City")
 
 #Pipeline not yet run
@@ -129,3 +128,106 @@ fig_map.update_layout(height=600, margin={"r":0,"t":0,"l":0,"b":0})#no bordi
 st.plotly_chart(fig_map, use_container_width=True) #adatta la larghezza del grafico alla larghezza della colonna in cui si trova e plotta il grafico
 
 st.divider()
+
+#Borough charts
+col_left, col_right = st.columns(2)
+
+with col_left:
+    st.subheader("Airbnb Listings per Borough")
+    fig_bar = px.bar(
+        borough_summary.sort_values("num_listings", ascending=True),
+        x="num_listings",
+        y="neighbourhood_group_cleansed",
+        orientation="h",
+        color="avg_occupancy_pct",
+        color_continuous_scale="Oranges",
+        labels={
+            "num_listings": "Number of Listings",
+            "neighbourhood_group_cleansed": "Borough",
+            "avg_occupancy_pct": "Avg Occupancy %"
+        }
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+with col_right:
+    st.subheader("Airbnb Pressure Index per Borough")
+    fig_pressure = px.bar(
+        pressure.sort_values("pressure_score", ascending=True),
+        x="pressure_score",
+        y="neighbourhood_group_cleansed",
+        orientation="h",
+        color="pressure_score",
+        color_continuous_scale="Reds",
+        labels={
+            "pressure_score": "Pressure Score",
+            "neighbourhood_group_cleansed": "Borough"
+        }
+    )
+    st.plotly_chart(fig_pressure, use_container_width=True)
+
+st.divider()
+
+#Top 10 most stressed ZIP codes
+st.subheader("Top 10 Most Stressed Zip Codes")
+top10 = (
+    zip_stress
+    .dropna(subset=["rent_burden_pct"])
+    .sort_values("rent_burden_pct", ascending=False)
+    .head(10)[["zip_code", "neighbourhood_group_cleansed",
+               "rent_burden_pct", "stress_category",
+               "median_income", "market_rent",
+               "num_airbnb_listings", "avg_occupancy_pct"]]
+)
+
+st.dataframe(
+    top10.rename(columns={
+        "zip_code": "ZIP Code",
+        "neighbourhood_group_cleansed": "Borough",
+        "rent_burden_pct": "Rent Burden %",
+        "stress_category": "Stress Category",
+        "median_income": "Median Income $",
+        "market_rent": "Market Rent $/mo",
+        "num_airbnb_listings": "Airbnb Listings",
+        "avg_occupancy_pct": "Avg Occupancy %",
+    }),
+    use_container_width=True
+)
+
+st.divider()
+
+#Scatter, Airbnb listings vs Rent Burden
+st.subheader(" Airbnb Concentration vs Rental Stress")
+
+scatter_df = zip_stress.dropna(subset=["rent_burden_pct"]).copy() #scatter_df è un oggetto separato in memoria, modificarlo non tocca zip_stress
+scatter_df["avg_occupancy_pct"] = scatter_df["avg_occupancy_pct"].fillna(0)
+
+fig_scatter = px.scatter(
+    scatter_df,
+    x="num_airbnb_listings",
+    y="rent_burden_pct",
+    color="neighbourhood_group_cleansed",
+    size="avg_occupancy_pct",
+    hover_data=["zip_code", "median_income", "market_rent"],
+    labels={
+        "num_airbnb_listings": "Number of Airbnb Listings",
+        "rent_burden_pct": "Rent Burden %",
+        "neighbourhood_group_cleansed": "Borough",
+        "avg_occupancy_pct": "Avg Occupancy %",
+        "zip_code": "ZIP Code",
+        "median_income": "Median Income $",
+        "market_rent": "Market Rent $/mo"
+    }
+)
+fig_scatter.add_hline(
+    y=30, line_dash="dash", line_color="orange",
+    annotation_text="Stressed threshold (30%)"
+)
+fig_scatter.add_hline(
+    y=50, line_dash="dash", line_color="red",
+    annotation_text="Severely stressed threshold (50%)"
+)
+
+st.plotly_chart(fig_scatter, use_container_width=True)
+
+st.markdown("**Data Sources:** Inside Airbnb · Zillow ZORI · US Census ACS 2024 · NYC Open Data (GeoJSON)")
+st.markdown("**Stack:** Apache Kafka · Apache Spark · Apache Sedona · MinIO · PostgreSQL · Streamlit")
