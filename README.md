@@ -95,13 +95,13 @@ The Streamlit dashboard (app/dashboard.py) reads exclusively from PostgreSQL and
 <p align="center">
   <img src="borough_bar_charts.png" width="800" alt="Borough Analysis">
   <br>
-  <em>Figura 1: Airbnb listings per borough e Airbnb Pressure Index.</em>
+  <em>Figure 1: Airbnb listings per borough and Airbnb Pressure Index.</em>
 </p>
 
 <p align="center">
   <img src="top10_stressed_zips.png" width="800" alt="Top 10 Stressed ZIPs">
   <br>
-  <em>Figura 2: I dieci codici postali (ZIP) con il maggior stress locativo.</em>
+  <em>Figure 2: Top 10 ZIP codes under the most severe rental stress.</em>
 </p>
 
 Inside Airbnb join mismatch: listings and calendar are generated at different times, so not all listing_ids match. A left join keeps every listing (null occupancy where calendar is missing); avg() in Gold ignores nulls.
