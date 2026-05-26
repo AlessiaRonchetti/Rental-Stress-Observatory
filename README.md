@@ -202,13 +202,13 @@ Shows what share of a borough's Airbnb supply is fully removed from the long-ter
 The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL and auto-refreshes every 5 minutes via `@st.cache_data(ttl=300)`. If the database is still empty, it shows a friendly *"Data not available yet"* message instead of crashing (graceful degradation). It contains six sections: KPI cards, an interactive rental-stress heatmap, two borough bar charts, a top-10 stressed ZIP table, and a scatter plot.
 
 <p align="center">
-  <img src="images/borough_bar_charts.png" width="800" alt="Borough Analysis">
+  <img src="borough_bar_charts.png" width="800" alt="Borough Analysis">
   <br>
   <em>Figure 1: Airbnb listings per borough and Airbnb Pressure Index.</em>
 </p>
 
 <p align="center">
-  <img src="images/top10_stressed_zips.png" width="800" alt="Top 10 Stressed ZIPs">
+  <img src="top10_stressed_zips.png" width="800" alt="Top 10 Stressed ZIPs">
   <br>
   <em>Figure 2: Top 10 ZIP codes under the most severe rental stress.</em>
 </p>
