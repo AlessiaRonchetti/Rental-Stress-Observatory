@@ -1,5 +1,37 @@
 # NYC Rental Stress Observatory
 
+> A fully autonomous Big Data pipeline that measures how Airbnb short-term rentals affect housing affordability across New York City — from raw public data to an interactive dashboard, launched with a single `docker-compose up`.
+
+**Course:** Big Data Technologies 2025/2026 · Università degli Studi di Trento
+**Authors:** Alessia Ronchetti · Giorgia Mazzarello · Mohamed Amine El Hani
+
+---
+
+## Table of Contents
+
+1. [Description](#description)
+2. [Abstract](#abstract)
+3. [Why This Is a Big Data Problem](#why-this-is-a-big-data-problem)
+4. [Architecture at a Glance](#architecture-at-a-glance)
+5. [Technologies Used](#technologies-used)
+6. [Project Structure](#project-structure)
+7. [Setup & Configuration](#setup--configuration)
+8. [Data Sources](#data-sources)
+9. [Medallion Architecture](#medallion-architecture)
+10. [Gold Tables Schema](#gold-tables-schema)
+11. [Indices and Methodology](#indices-and-methodology)
+12. [Pipeline Components](#pipeline-components)
+13. [Docker Services](#docker-services)
+14. [Dashboard](#dashboard)
+15. [Key Results](#key-results)
+16. [Known Issues & Solutions](#known-issues--solutions)
+17. [Limitations & Future Work](#limitations--future-work)
+18. [Troubleshooting](#troubleshooting)
+19. [Acknowledgments & GenAI Disclosure](#acknowledgments--genai-disclosure)
+20. [License](#license)
+
+---
+
 ## Description
 
 The **NYC Rental Stress Observatory** is a fully autonomous Big Data system that monitors the impact of short-term rentals (Airbnb) on housing affordability in New York City. With a single `docker-compose up`, the system downloads data, processes it through a medallion architecture, and serves an interactive Streamlit dashboard — with no manual intervention.
@@ -10,7 +42,55 @@ The system combines four public data sources (Inside Airbnb, Zillow, US Census A
 
 The whole pipeline is event-driven: a scraper publishes Kafka events when new data appears, and a debounced Kafka consumer triggers the ETL automatically. All seven services are orchestrated with Docker Compose.
 
-The final output is a set of rental stress metrics per ZIP code and borough — rent burden %, occupancy rate, and an Airbnb Pressure Index — visualized in a real-time web dashboard.
+The final output is a set of rental stress metrics per ZIP code and borough — rent burden %, occupancy rate, and an Airbnb Pressure Index — visualized in a web dashboard.
+
+---
+
+## Why This Is a Big Data Problem
+
+| Dimension | In this project |
+|---|---|
+| **Volume** | 36,445 Airbnb listings and **13M+ calendar rows** (365 days × listings), plus multiple administrative datasets, aggregated down to ZIP/borough level. |
+| **Variety** | Compressed CSV (Airbnb), monthly time-series CSV (Zillow), JSON from the Census API, GeoJSON polygons (NYC Open Data), and Parquet intermediate outputs. |
+| **Velocity** | Event-driven refresh: the scraper checks every 24h and a Kafka event triggers a full re-processing automatically when new data lands. |
+| **Complexity** | Cleaning, type casting, null handling, multi-source joins, a **geospatial join** (point-in-polygon over 441 polygons), aggregations, and dashboard serving. |
+
+No single dataset captures rent, income, Airbnb activity *and* geography together — the value of the project is in integrating them into one reproducible pipeline.
+
+---
+
+## Architecture at a Glance
+
+```
+                         ┌──────────────────────────────────────────────┐
+   DATA SOURCES          │                 INGESTION                     │
+ ┌─────────────────┐     │   scraper.py  ──(Kafka event)──▶  consumer    │
+ │ Inside Airbnb   │     │   (every 24h)   pipeline.file-events  (60s    │
+ │ Zillow ZORI     │────▶│                                  debounce)    │
+ │ US Census ACS5  │     └───────────────────────┬──────────────────────┘
+ │ NYC Open Data   │                             │ triggers
+ └─────────────────┘                             ▼
+                              ┌──────────────────────────────────────┐
+                              │     run_pipeline.py (orchestrator)    │
+                              └──────────────────────────────────────┘
+                                  │            │              │
+                                  ▼            ▼              ▼
+                            ingestion.py  processing.py    serving.py
+                                  │            │              │
+                                  ▼            ▼              ▼
+                          ┌──────────────────────────────┐  ┌─────────────┐
+                          │           MinIO               │  │ PostgreSQL  │
+                          │  Bronze ─▶ Silver ─▶ Gold      │─▶│  5 tables   │
+                          │  (raw)    (clean)   (agg.)     │  └──────┬──────┘
+                          └──────────────────────────────┘         │
+                                                                    ▼
+                                                          ┌──────────────────┐
+                                                          │ Streamlit dash.  │
+                                                          │ localhost:8501   │
+                                                          └──────────────────┘
+
+       All 7 services orchestrated by Docker Compose  ·  docker-compose up -d
+```
 
 ---
 
@@ -25,7 +105,7 @@ The final output is a set of rental stress metrics per ZIP code and borough — 
 | **Apache Sedona 1.7.0** | Extends Spark with geospatial functions (`ST_Point`, `ST_Within`) |
 | **MinIO** | S3-compatible object storage used as the data lake |
 | **PostgreSQL 15** | Relational serving layer holding aggregated tables |
-| **Streamlit** | Interactive web dashboard that auto-refreshes every 5 minutes |
+| **Streamlit** | Interactive web dashboard, refreshes via a 5-minute cache TTL |
 
 ---
 
@@ -58,6 +138,7 @@ Rental-Stress-Observatory/
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
 - A free [US Census API key](https://api.census.gov/data/key_signup.html)
+- ~4 GB of free disk space (MinIO stores all three medallion layers on the host disk)
 
 ### How to Run
 
@@ -86,7 +167,7 @@ docker-compose up -d
 docker logs -f pipeline-runner
 ```
 
-5. **Open the dashboard** at [http://localhost:8501](http://localhost:8501). It shows *"Data not available yet"* until the pipeline completes, then auto-refreshes.
+5. **Open the dashboard** at [http://localhost:8501](http://localhost:8501). It shows *"Data not available yet"* until the pipeline completes, then refreshes automatically as the cache expires.
 
 ### Other Endpoints
 
@@ -95,6 +176,8 @@ docker logs -f pipeline-runner
 | MinIO console | http://localhost:9001 | `admin` / `password123` |
 | JupyterLab | http://localhost:8888 | token: `bigdata123` |
 | Spark UI | http://localhost:4040 | — |
+
+> !!! The credentials above are **demo values** hard-coded for local use only. Do not reuse them in any non-local or production deployment.
 
 ### Reset Everything
 
@@ -110,10 +193,14 @@ docker-compose down -v && rm -rf minio_data/ data/raw/ spark_jars/
 
 | Source | What it provides | Format | URL |
 |---|---|---|---|
-| **Inside Airbnb** | Listings (lat/lon, price, type) + Calendar (daily availability) | CSV (.gz) | [data.insideairbnb.com](https://data.insideairbnb.com) |
-| **Zillow ZORI** | Market rent estimate per ZIP code, one column per month | CSV | [files.zillowstatic.com](https://files.zillowstatic.com) |
-| **US Census ACS** | Median household income + population per ZIP code (5-year estimates) | JSON API | [api.census.gov](https://api.census.gov) |
+| **Inside Airbnb** | Listings (lat/lon, room type) + Calendar (daily availability) | CSV (.gz) | [data.insideairbnb.com](https://data.insideairbnb.com) |
+| **Zillow ZORI** | Market rent index per ZIP code, one column per month | CSV | [files.zillowstatic.com](https://files.zillowstatic.com) |
+| **US Census ACS5** | Median household income + population per ZIP code (5-year estimates) | JSON API → CSV | [api.census.gov](https://api.census.gov) |
 | **NYC Open Data** | GeoJSON polygons of NYC ZIP code boundaries (MODZCTA) | GeoJSON | [data.cityofnewyork.us](https://data.cityofnewyork.us) |
+
+> **Note on the Airbnb price field:** the `price` column is null across the entire NYC Inside Airbnb dataset, so market rent is **proxied via Zillow ZORI** (a ZIP-level monthly index) rather than computed from listing prices.
+
+> **Note on geographic scope:** the Census API is queried for **all US ZIP codes** (`zip code tabulation area:*`), then Zillow is filtered to `State == "NY"`. The inner join of the three economic datasets therefore yields **441 New York-state ZIP codes** with complete rent + income data — this is the basis of the `market_rental_stress` table. The Airbnb spatial join and the heatmap are instead restricted to **NYC ZIP polygons** (MODZCTA, NYC Open Data). This deliberate scope mismatch is documented under [Limitations](#limitations--future-work).
 
 ---
 
@@ -124,10 +211,22 @@ Data flows through three layers stored in MinIO, in increasing quality. The key 
 | Layer | Format | Content | Written by |
 |---|---|---|---|
 | **Bronze** (raw) | CSV (.gz) | Files exactly as downloaded, no transformation | `ingestion.py` |
-| **Silver** (cleaned) | Parquet | Typed, deduplicated, nulls handled, `GEO_ID → ZIP` | `processing.py` |
-| **Gold** (aggregated) | Parquet | Business metrics ready for the dashboard | `processing.py` |
+| **Silver** (cleaned) | Parquet | Typed, deduplicated, nulls handled, `GEO_ID → ZIP`, occupancy aggregated | `processing.py` |
+| **Gold** (aggregated) | Parquet → PostgreSQL | Business metrics ready for the dashboard | `processing.py` + `serving.py` |
 
-The Gold layer produces five tables, also written to PostgreSQL: `market_rental_stress`, `airbnb_borough_summary`, `airbnb_pressure`, `airbnb_listings_with_zip`, and `zip_airbnb_stress_summary`.
+The Gold layer produces **five tables**, all written to PostgreSQL via Spark JDBC.
+
+---
+
+## Gold Tables Schema
+
+| Table | Grain | Key columns |
+|---|---|---|
+| `market_rental_stress` | one row per NY-state ZIP | `zip_code`, `median_income`, `market_rent`, `total_population`, `rent_burden_pct`, `stress_category` |
+| `airbnb_borough_summary` | one row per borough | `neighbourhood_group_cleansed`, `num_listings`, `avg_occupancy_pct`, `avg_host_listings`, `entire_home_pct` |
+| `airbnb_pressure` | one row per borough | `neighbourhood_group_cleansed`, `num_listings`, `avg_occupancy_pct`, `pressure_score` |
+| `airbnb_listings_with_zip` | one row per listing | `listing_id`, `zip_code`, `neighbourhood_group_cleansed`, `latitude`, `longitude`, `room_type`, `final_occupancy_rate` |
+| `zip_airbnb_stress_summary` | one row per ZIP (combined view) | `zip_code`, `neighbourhood_group_cleansed`, `rent_burden_pct`, `stress_category`, `median_income`, `market_rent`, `num_airbnb_listings`, `avg_occupancy_pct`, `entire_home_pct` |
 
 ---
 
@@ -135,7 +234,7 @@ The Gold layer produces five tables, also written to PostgreSQL: `market_rental_
 
 ### 1. Rent Burden % (HUD standard)
 
-Share of annual income spent on rent:
+Share of **annual** income spent on rent. `median_income` is the Census ACS5 *annual* median household income (variable `B19013_001E`); `market_rent` is the latest monthly Zillow ZORI value, multiplied by 12 to annualize:
 
 ```
 rent_burden_pct = (market_rent × 12 / median_income) × 100
@@ -147,14 +246,21 @@ rent_burden_pct = (market_rent × 12 / median_income) × 100
 | Stressed | 30% – 49.9% |
 | Severely Stressed | ≥ 50% |
 
+> **Why some values exceed 100%:** Zillow ZORI is a *broad market-rent index*. In very low-income ZIP codes it can exceed what residents actually pay, producing rent-burden values above 100% (e.g. ZIP 10454 at 144%). The index should be read as a **relative pressure signal**, not the literal share of income spent on rent.
+
 ### 2. Occupancy Rate (per listing)
 
-`days_blocked / total_days`, requiring ≥ 300 calendar days.
-(`available = "f"` means the day is blocked — booked or host-blocked.)
+```
+occupancy_rate = days_blocked / total_days        (requires ≥ 300 calendar days)
+```
+
+`available = "f"` in the calendar means the day is blocked (booked or host-blocked). Listings with fewer than 300 calendar days are excluded as unreliable, and a `0.0` rate is set to null (never-booked listings carry no signal).
+
+> **Known limitation:** the calendar does not distinguish *booked* from *host-blocked* days, so the occupancy rate is an approximation of demand.
 
 ### 3. Airbnb Pressure Index (per borough)
 
-Combines listing volume and occupancy utilization per borough. The listing count is normalized by the borough maximum (so the busiest borough gets 1.0 on that factor), then multiplied by the average occupancy percentage (0–100). The resulting score is a relative index — higher means more pressure — not a strict 0–1 range.
+Combines listing volume and occupancy utilization per borough. The listing count is normalized by the borough maximum (so the busiest borough gets 1.0 on that factor), then multiplied by the average occupancy percentage (0–100). The result is a **relative index** — higher means more pressure. It is **not** bounded to 0–1; its scale depends on the average occupancy percentage.
 
 ```
 pressure_score = (num_listings / max_listings_across_boroughs) × avg_occupancy_pct
@@ -163,32 +269,45 @@ pressure_score = (num_listings / max_listings_across_boroughs) × avg_occupancy_
 ### 4. Entire Home %
 
 ```
-(entire_home_listings / total_listings) × 100
+entire_home_pct = (entire_home_listings / total_listings) × 100
 ```
 
-Shows what share of a borough's Airbnb supply is fully removed from the long-term rental market.
+Shows what share of a borough's Airbnb supply is fully removed from the long-term rental market (entire homes/apartments displace housing units in a way that private rooms do not).
 
 ---
 
-## Components Description
+## Pipeline Components
 
 ### Pipeline (autonomous ETL)
 
 - **`config.py`** — Central configuration read from environment variables (Kafka/MinIO hosts, topic, 60s debounce, Census key, JDBC properties).
-- **`scraper.py`** — Checks each source every 24h and downloads only changed files; resolves the dynamic Zillow URL via BeautifulSoup and publishes a Kafka event on `pipeline.file-events`. Keeps `scraper_state.json` for idempotency.
+- **`scraper.py`** — Checks each source every 24h and downloads only changed files. Resolves the dynamic Zillow URL via BeautifulSoup, picks the most recent joinable Inside Airbnb release (see the validation step below), and publishes a Kafka event on `pipeline.file-events`. Keeps `.scraper_state.json` for idempotency.
 - **`ingestion.py`** — Uploads raw files from `data/raw/` to MinIO under `bronze/`.
-- **`processing.py`** — Spark job for Silver and Gold. Cleans and types the data, runs the Sedona spatial join (`ST_Within`) to assign each listing a ZIP code, and computes the Gold metrics. Downloads required JARs (`hadoop-aws`, `sedona`, `geotools`, `postgresql`) at runtime.
-- **`serving.py`** — Reads Gold Parquet from MinIO and writes the five tables to PostgreSQL via Spark JDBC (`.mode("overwrite")`).
+- **`processing.py`** — Spark job for Silver and Gold. Cleans and types the data, runs the Sedona spatial join (`ST_Within`) to assign each listing a ZIP code, and computes the Gold metrics. Downloads required JARs (`hadoop-aws`, `aws-sdk`, `sedona`, `geotools`) at runtime. The NYC ZIP GeoJSON is fetched here at runtime and cached in `/tmp` — *not* via the scraper.
+- **`serving.py`** — Reads Gold Parquet from MinIO and writes the five tables to PostgreSQL via Spark JDBC (`.mode("overwrite")`, full-table replace).
 - **`run_pipeline.py`** — Orchestrates ingestion → processing → serving; aborts on the first failure to avoid partial writes.
 - **`pipeline_consumer.py`** — Kafka consumer that triggers the pipeline after 60s of silence (debounce), batching bursts of events into a single run.
 - **`start.py`** — Container entry point; launches the scraper and consumer as daemon threads.
 
-### Docker Services (7 containers)
+### Event flow
+
+```
+scraper finds new data ─▶ Kafka event ─▶ consumer waits 60s (debounce)
+                                              │
+                                              ▼
+                          run_pipeline: ingestion ─▶ processing ─▶ serving
+```
+
+The 60s debounce matters because the scraper may download several files at once (e.g. listings + calendar + Zillow), each producing an event. Debouncing collapses that burst into a **single** pipeline run instead of three parallel ones.
+
+---
+
+## Docker Services
 
 | Service | Image | Port | Role |
 |---|---|---|---|
 | `zookeeper` | `cp-zookeeper:7.5.0` | 2181 | Kafka coordinator |
-| `kafka` | `cp-kafka:7.5.0` | 9092 | Message broker (`pipeline.file-events`) |
+| `kafka` | `cp-kafka:7.5.0` | 9092 | Message broker (`pipeline.file-events`), 7-day retention |
 | `minio` | `minio/minio:latest` | 9000 / 9001 | S3-compatible data lake |
 | `postgres` | `postgres:15` | 5432 | Serving layer for the dashboard |
 | `pyspark` | `jupyter/pyspark-notebook` | 8888 / 4040 | Interactive Spark / JupyterLab |
@@ -199,7 +318,14 @@ Shows what share of a borough's Airbnb supply is fully removed from the long-ter
 
 ## Dashboard
 
-The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL and auto-refreshes every 5 minutes via `@st.cache_data(ttl=300)`. If the database is still empty, it shows a friendly *"Data not available yet"* message instead of crashing (graceful degradation). It contains six sections: KPI cards, an interactive rental-stress heatmap, two borough bar charts, a top-10 stressed ZIP table, and a scatter plot.
+The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL and refreshes via a 5-minute cache TTL (`@st.cache_data(ttl=300)`). If the database is still empty, it shows a friendly *"Data not available yet"* message instead of crashing (**graceful degradation**). It contains six sections:
+
+1. **KPI cards** — ZIP codes analyzed, affordable / stressed / severely stressed counts, total Airbnb listings.
+2. **Interactive rental-stress heatmap** — choropleth over NYC ZIP polygons, with a rent-burden filter slider.
+3. **Airbnb listings per borough** — horizontal bar chart, colored by average occupancy.
+4. **Airbnb Pressure Index per borough** — horizontal bar chart.
+5. **Top 10 most stressed ZIP codes** — sortable table.
+6. **Airbnb concentration vs rental stress** — scatter plot with stressed (30%) and severely-stressed (50%) threshold lines.
 
 <p align="center">
   <img src="images/borough_bar_charts.png" width="800" alt="Borough Analysis">
@@ -215,31 +341,81 @@ The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL a
 
 ---
 
-## Known Issues & Solutions
+## Key Results
 
-**Inside Airbnb join mismatch** — Listings and calendar are generated at different times, so not all `listing_id`s match. The pipeline uses an inner join starting from calendar rows with ≥ 300 days of data: only listings with sufficient calendar coverage are retained, ensuring occupancy rates are statistically reliable. Listings without calendar data are excluded from the spatial aggregation.
-
-**Manual trigger → Kafka automation** — Steps were originally run by hand. Kafka was chosen because it decouples components, persists events for 7 days (replay after crash), and is extensible.
-
-**Zillow dynamic URL + column bug** — The CSV URL carries a changing timestamp (hardcoding → 403), resolved dynamically with BeautifulSoup. A separate indentation bug had the header-parsing inside the download loop, causing `break` to skip it; moving the parsing outside the loop fixed the stale-date result.
-
-**Census API key not passed** — The key was defined in `config.py` but not added to the request params, so the API returned HTML instead of JSON. Fix: add `"key": CENSUS_API_KEY` to the params; the key is supplied via `.env → Docker → os.getenv`.
-
-**MinIO Storage Full (HTTP 507)** — The pipeline failed with `XMinioStorageFull: Storage backend has reached its minimum free disk threshold` because MinIO uses the host machine's disk space. Fix: free disk space before restarting. Prevention: after Silver is written, Bronze can be safely removed since Silver is 5–10× smaller in Parquet format. All three layers are kept in this project for full data lineage.
-
-**`PYSPARK_SUBMIT_ARGS` before SparkSession** — JARs added with `.config("spark.jars", ...)` are ignored because the JVM classpath is fixed at `getOrCreate()`. Set `os.environ["PYSPARK_SUBMIT_ARGS"]` before importing SparkSession.
-
-**Sedona import after SparkSession** — Importing Sedona at the top of the file fails (it looks for an active Spark context). Move the import inside the function, after the session is built.
+- **441** NY-state ZIP codes analyzed with complete rent + income data: **180 affordable**, **192 stressed**, **69 severely stressed**.
+- **36,445** Airbnb listings processed end-to-end.
+- **8 of the 10** most stressed ZIP codes are in the **Bronx**, driven by very low median household incomes ($24,086–$38,770/year) rather than by Airbnb volume.
+- **Manhattan and Brooklyn** lead on Airbnb volume and on the Pressure Index.
+- High Airbnb volume (Manhattan) and low income (Bronx) emerge as **distinct but complementary** stress drivers — a pattern that borough-level averages alone would hide.
 
 ---
 
-## Authors
+## Known Issues & Solutions
 
-This project was developed for the **Big Data Technologies** course by:
+**Inside Airbnb join mismatch** — Listings and calendar are generated at different times, so not all `listing_id`s match. The pipeline uses an **inner join starting from calendar rows with ≥ 300 days** of data: only listings with sufficient calendar coverage are retained, ensuring occupancy rates are statistically reliable. Listings without calendar data are excluded. *Upstream*, the scraper also **validates each candidate release before accepting it** — it samples 200 listing IDs and checks they appear in the calendar file; if none match, it falls back to the previous date, guaranteeing the two files are joinable before they ever enter the pipeline.
 
-- Giorgia Mazzarello
-- Mohamed Amine El Hani
-- Alessia Ronchetti
+**Manual trigger → Kafka automation** — Steps were originally run by hand. Kafka was chosen because it decouples components, persists events for 7 days (replay after crash), and is extensible.
+
+**Zillow dynamic URL + column bug** — The CSV URL carries a changing timestamp (hardcoding → 403), resolved dynamically with BeautifulSoup. A separate bug had the header-parsing code *inside* the streaming-download loop, so `break` exited before parsing and returned a stale 2022 date; moving the parsing outside the loop fixed it.
+
+**Census API key not passed** — The key was defined in `config.py` but not added to the request params, so the API returned HTML instead of JSON (`JSONDecodeError`). Fix: add `"key": CENSUS_API_KEY` to the params; the key flows `.env → Docker → os.getenv`.
+
+**MinIO Storage Full (HTTP 507)** — The pipeline failed with `XMinioStorageFull` because MinIO uses the host machine's disk space. Fix: free disk space before restarting. Prevention: after Silver is written, Bronze can be safely removed (Silver is 5–10× smaller in Parquet). All three layers are kept here for full data lineage.
+
+**`PYSPARK_SUBMIT_ARGS` before SparkSession** — JARs added with `.config("spark.jars", ...)` are ignored because the JVM classpath is fixed at `getOrCreate()`. Set `os.environ["PYSPARK_SUBMIT_ARGS"]` *before* importing SparkSession.
+
+**Sedona import after SparkSession** — Importing Sedona at the top of the file fails (it looks for an active Spark context). Move the import *inside* the function, after the session is built.
+
+---
+
+## Limitations & Future Work
+
+### Current limitations
+
+- **Occupancy is an approximation** — the calendar does not distinguish booked from host-blocked days.
+- **Scope mismatch** — the economic stress index covers 441 NY-state ZIPs, while the Airbnb spatial analysis is restricted to NYC polygons. Because Zillow ZORI is a broad market index, rent burden can exceed 100% in very low-income ZIPs (a relative signal, not a literal share).
+- **Single Kafka broker** — no fault tolerance; a production deployment would need ≥ 3 replicas.
+- **No orchestration layer** — there is no Airflow-style retry logic, scheduling, or failure alerting.
+- **Spatial-join cost** — Sedona `ST_Within` over 36,445 points × 441 polygons is the pipeline bottleneck.
+
+### Future work
+
+- Add **Airflow** for scheduling, retry logic, and pipeline health monitoring.
+- **Historical trend analysis** using all Zillow monthly columns (rent time-series).
+- **Outlier handling** — clip extreme Zillow ZORI values before computing stress.
+- **Validation test suite** — row counts per layer and schema checks after each ETL step.
+- **Cloud deployment** — containerized pipeline on AWS/GCP with auto-scaling.
+- **Real-time streaming** — Kafka + Spark Structured Streaming for live listing ingestion.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Dashboard shows *"Data not available yet"* | Pipeline hasn't finished (first run takes 15–30 min) | `docker logs -f pipeline-runner` and wait for `PIPELINE RUN COMPLETE` |
+| `pipeline-runner` exits with a Census `JSONDecodeError` | Missing/invalid `CENSUS_API_KEY` | Check `.env` exists and the key is valid |
+| `XMinioStorageFull` / HTTP 507 | Host disk full | Free space, then `docker-compose restart pipeline-runner` |
+| `ClassNotFoundException: S3AFileSystem` | JARs not on the JVM classpath | Ensure `spark_jars/` is mounted and re-run; JARs download on first run |
+| Spark UI (4040) unreachable | No active Spark job at the moment | The UI only exists while a job is running |
+
+---
+
+## Acknowledgments & GenAI Disclosure
+
+**Datasets & references**
+- Inside Airbnb — listings and calendar data for New York City.
+- Zillow Observed Rent Index (ZORI) — market rent time-series.
+- US Census Bureau, ACS 5-year estimates — median household income and population.
+- NYC Open Data — MODZCTA ZIP-code boundary polygons.
+- Rent-burden thresholds follow the **US Department of Housing and Urban Development (HUD)** affordability standard (30% / 50%).
+
+**Libraries, APIs & tools**
+- Apache Kafka, Apache Spark / PySpark, Apache Sedona, MinIO, PostgreSQL, Streamlit, Plotly, pandas, BeautifulSoup, Docker Compose.
+
+**GenAI usage**
+Generative AI (**Claude**, by Anthropic) was used as a support aid during development — specifically to **guide the writing of the code** and to **draft and refine this documentation**. All architectural decisions, data modeling, metric definitions, and final code were designed, reviewed, and validated by the authors.
 
 ---
 
