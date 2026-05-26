@@ -112,8 +112,6 @@ No single dataset captures rent, income, Airbnb activity *and* geography togethe
 
 ## Project Structure
 
-## Project Structure
-
 ```text
 Rental-Stress-Observatory/
 ├── docker-compose.yml              # Defines all 7 services
