@@ -219,7 +219,7 @@ The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL a
 
 **Inside Airbnb join mismatch** — Listings and calendar are generated at different times, so not all `listing_id`s match. A left join keeps every listing (null occupancy where calendar is missing); `avg()` in Gold ignores nulls.
 
-**Manual trigger → Kafka automation** — Steps were originally run by hand. Kafka was chosen over cron because it decouples components, persists events for 7 days (replay after crash), and is extensible.
+**Manual trigger → Kafka automation** — Steps were originally run by hand. Kafka was chosen because it decouples components, persists events for 7 days (replay after crash), and is extensible.
 
 **Zillow dynamic URL + column bug** — The CSV URL carries a changing timestamp (hardcoding → 403), resolved dynamically with BeautifulSoup. A separate indentation bug had the header-parsing inside the download loop, causing `break` to skip it; moving the parsing outside the loop fixed the stale-date result.
 
