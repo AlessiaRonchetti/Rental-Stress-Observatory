@@ -225,6 +225,8 @@ The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL a
 
 **Census API key not passed** — The key was defined in `config.py` but not added to the request params, so the API returned HTML instead of JSON. Fix: add `"key": CENSUS_API_KEY` to the params; the key is supplied via `.env → Docker → os.getenv`.
 
+**MinIO Storage Full (HTTP 507)** — The pipeline failed with `XMinioStorageFull: Storage backend has reached its minimum free disk threshold` because MinIO uses the host machine's disk space. Fix: free disk space before restarting. Prevention: after Silver is written, Bronze can be safely removed since Silver is 5–10× smaller in Parquet format. All three layers are kept in this project for full data lineage.
+
 **`PYSPARK_SUBMIT_ARGS` before SparkSession** — JARs added with `.config("spark.jars", ...)` are ignored because the JVM classpath is fixed at `getOrCreate()`. Set `os.environ["PYSPARK_SUBMIT_ARGS"]` before importing SparkSession.
 
 **Sedona import after SparkSession** — Importing Sedona at the top of the file fails (it looks for an active Spark context). Move the import inside the function, after the session is built.
@@ -236,7 +238,7 @@ The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL a
 This project was developed for the **Big Data Technologies** course by:
 
 - Giorgia Mazzarello
-- Amine Elhani
+- Mohamed Amine El Hani
 - Alessia Ronchetti
 
 ---
