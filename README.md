@@ -154,7 +154,7 @@ rent_burden_pct = (market_rent × 12 / median_income) × 100
 
 ### 3. Airbnb Pressure Index (per borough)
 
-Combines volume and utilization, normalized to a 0–1 scale:
+Combines listing volume and occupancy utilization per borough. The listing count is normalized by the borough maximum (so the busiest borough gets 1.0 on that factor), then multiplied by the average occupancy percentage (0–100). The resulting score is a relative index — higher means more pressure — not a strict 0–1 range.
 
 ```
 pressure_score = (num_listings / max_listings_across_boroughs) × avg_occupancy_pct
@@ -217,7 +217,7 @@ The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL a
 
 ## Known Issues & Solutions
 
-**Inside Airbnb join mismatch** — Listings and calendar are generated at different times, so not all `listing_id`s match. A left join keeps every listing (null occupancy where calendar is missing); `avg()` in Gold ignores nulls.
+**Inside Airbnb join mismatch** — Listings and calendar are generated at different times, so not all `listing_id`s match. The pipeline uses an inner join starting from calendar rows with ≥ 300 days of data: only listings with sufficient calendar coverage are retained, ensuring occupancy rates are statistically reliable. Listings without calendar data are excluded from the spatial aggregation.
 
 **Manual trigger → Kafka automation** — Steps were originally run by hand. Kafka was chosen because it decouples components, persists events for 7 days (replay after crash), and is extensible.
 
