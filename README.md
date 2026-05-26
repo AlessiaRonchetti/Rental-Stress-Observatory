@@ -18,17 +18,18 @@
 7. [Setup & Configuration](#setup--configuration)
 8. [Data Sources](#data-sources)
 9. [Medallion Architecture](#medallion-architecture)
-10. [Gold Tables Schema](#gold-tables-schema)
-11. [Indices and Methodology](#indices-and-methodology)
-12. [Pipeline Components](#pipeline-components)
-13. [Docker Services](#docker-services)
-14. [Dashboard](#dashboard)
-15. [Key Results](#key-results)
-16. [Known Issues & Solutions](#known-issues--solutions)
-17. [Limitations & Future Work](#limitations--future-work)
-18. [Troubleshooting](#troubleshooting)
-19. [Acknowledgments & GenAI Disclosure](#acknowledgments--genai-disclosure)
-20. [License](#license)
+10. [Silver Tables Schema](#silver-tables-schema)
+11. [Gold Tables Schema](#gold-tables-schema)
+12. [Indices and Methodology](#indices-and-methodology)
+13. [Pipeline Components](#pipeline-components)
+14. [Docker Services](#docker-services)
+15. [Dashboard](#dashboard)
+16. [Key Results](#key-results)
+17. [Known Issues & Solutions](#known-issues--solutions)
+18. [Limitations & Future Work](#limitations--future-work)
+19. [Troubleshooting](#troubleshooting)
+20. [Acknowledgments & GenAI Disclosure](#acknowledgments--genai-disclosure)
+21. [License](#license)
 
 ---
 
@@ -177,7 +178,7 @@ docker logs -f pipeline-runner
 | JupyterLab | http://localhost:8888 | token: `bigdata123` |
 | Spark UI | http://localhost:4040 | — |
 
-> !!! The credentials above are **demo values** hard-coded for local use only. Do not reuse them in any non-local or production deployment.
+> ⚠️ The credentials above are **demo values** hard-coded for local use only. Do not reuse them in any non-local or production deployment.
 
 ### Reset Everything
 
@@ -215,6 +216,68 @@ Data flows through three layers stored in MinIO, in increasing quality. The key 
 | **Gold** (aggregated) | Parquet → PostgreSQL | Business metrics ready for the dashboard | `processing.py` + `serving.py` |
 
 The Gold layer produces **five tables**, all written to PostgreSQL via Spark JDBC.
+
+---
+
+## Silver Tables Schema
+
+The Silver layer is produced by `processing.py`. Each raw Bronze source is read, cleaned, typed and deduplicated, then written back to MinIO as Parquet under `silver/`. Four Silver datasets are produced.
+
+> **General rules applied to every source:** schema is inferred on read; CSVs are parsed with `multiLine`/`quote`/`escape` options so free-text Airbnb fields containing commas or newlines don't break rows; numeric fields are explicitly cast (no reliance on inferred types); rows with nulls in key columns are dropped (`dropna`). Output is **columnar Parquet**, which is 5–10× smaller than the source CSV and supports predicate pushdown for faster Gold reads.
+
+### `census_population/` — population per ZIP
+
+| Column | Type | Notes |
+|---|---|---|
+| `zip_code` | string | last 5 characters of `GEO_ID` (e.g. `860Z200US10001 → 10001`) |
+| `total_population` | int | from `B01003_001E` |
+
+**Processing:** extract ZIP via `substring(GEO_ID, -5, 5)`; strip every non-numeric character from the population value with `regexp_replace("[^0-9]","")`; empty results → `NULL`, otherwise cast to `int`; keep only the two columns; drop rows with any null.
+
+### `census_income/` — median household income per ZIP
+
+| Column | Type | Notes |
+|---|---|---|
+| `zip_code` | string | last 5 characters of `GEO_ID` |
+| `median_income` | int | from `B19013_001E` — **annual** median household income (ACS5) |
+
+**Processing:** identical cleaning to population — ZIP extracted from `GEO_ID`, non-numeric characters stripped, empty → `NULL` else cast to `int`, then `dropna`.
+
+### `zillow_rent/` — market rent per ZIP
+
+| Column | Type | Notes |
+|---|---|---|
+| `zip_code` | string | from `RegionName` |
+| `market_rent` | float | latest monthly ZORI value available |
+
+**Processing:** filter to `State == "NY"`; **dynamically detect the latest date column** by matching `YYYY-MM-DD` headers and taking the most recent one (instead of hardcoding a date — this avoids stale values); cast `RegionName → zip_code` and the latest column → `market_rent`; drop nulls.
+
+### `airbnb_listings_enriched/` — one row per listing (listings ⋈ calendar)
+
+| Column | Type | Notes |
+|---|---|---|
+| `listing_id` | bigint | from listings `id` |
+| `neighbourhood_group_cleansed` | string | borough |
+| `neighbourhood_cleansed` | string | neighbourhood |
+| `latitude` / `longitude` | float | listing coordinates |
+| `room_type` | string | entire home / private room / etc. |
+| `accommodates` | int | guest capacity |
+| `calculated_host_listings_count` | int | listings managed by the same host |
+| `final_occupancy_rate` | float | `days_blocked / total_days`, rounded to 4 decimals |
+| `days_available` / `days_blocked` / `total_days` | int | calendar counts behind the occupancy rate |
+
+This table is the result of cleaning **two** sources and joining them:
+
+**Listings cleaning** — drop rows with a non-castable `id`; drop listings with no borough (`neighbourhood_group_cleansed` null) or missing coordinates (cannot be mapped); cast `id → bigint`, lat/lon → `float`, `accommodates` and host count → `int`; keep only the geographic/demographic columns needed downstream. The `price` column is intentionally dropped — it is null across the entire NYC dataset, so rent is proxied via Zillow ZORI instead.
+
+**Calendar cleaning & aggregation** — the calendar starts at ~13M rows (≈365 per listing):
+1. Cast `listing_id → bigint` (drop invalid) and parse `date` with `to_date(…, "yyyy-MM-dd")`.
+2. Convert the text `available` flag into numeric indicators: `available = "t" → is_available = 1`, `available = "f" → is_blocked = 1` (blocked = booked or host-blocked).
+3. `groupBy(listing_id)` and sum the flags → `days_available`, `days_blocked`, `total_days`. This collapses ~13M rows down to ~36k (one per listing).
+4. Keep only listings with **`total_days ≥ 300`** (incomplete coverage is unreliable) and compute `cal_occupancy_rate = days_blocked / total_days`.
+5. Convert a `0.0` occupancy to `NULL` — a listing never blocked carries no usable demand signal.
+
+**Join** — `calendar_silver INNER JOIN listings_silver ON listing_id`. Starting from the calendar side (already filtered to ≥300 days) and using an inner join keeps only listings that exist in **both** files with sufficient calendar coverage, which is what makes the occupancy rates statistically reliable.
 
 ---
 
