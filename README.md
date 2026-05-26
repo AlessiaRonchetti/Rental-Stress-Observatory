@@ -215,7 +215,37 @@ Data flows through three layers stored in MinIO, in increasing quality. The key 
 | **Silver** (cleaned) | Parquet | Typed, deduplicated, nulls handled, `GEO_ID → ZIP`, occupancy aggregated | `processing.py` |
 | **Gold** (aggregated) | Parquet → PostgreSQL | Business metrics ready for the dashboard | `processing.py` + `serving.py` |
 
+**Bronze files** (under `s3a://rental-observatory/bronze/`): `listings_NY.csv.gz`, `calendar_NY.csv.gz` (Inside Airbnb), `zillow_rent.csv` (Zillow ZORI), `census_income.csv` and `census_population.csv` (US Census ACS5). The NYC ZIP GeoJSON is **not** stored in Bronze — it is fetched at runtime by `processing.py` and cached in `/tmp`.
+
 The Gold layer produces **five tables**, all written to PostgreSQL via Spark JDBC.
+
+### Data flow: which files feed which layer
+
+```
+BRONZE (raw CSV)                SILVER (cleaned Parquet)            GOLD (aggregated Parquet → PostgreSQL)
+──────────────────             ──────────────────────────         ───────────────────────────────────────
+census_population.csv ───────▶ census_population/ ─┐
+census_income.csv ───────────▶ census_income/ ─────┼─(inner join on zip_code)─▶ market_rental_stress
+zillow_rent.csv ─────────────▶ zillow_rent/ ───────┘                                    │
+                                                                                        │ (joined by ZIP
+listings_NY.csv.gz ──┐                                                                  │  in spatial step)
+                     ├──(inner join on listing_id)─▶ airbnb_listings_enriched/ ─┬──────▶ airbnb_borough_summary
+calendar_NY.csv.gz ──┘                                                          ├──────▶ airbnb_pressure
+                                                                                │
+NYC ZIP GeoJSON (runtime, /tmp) ───────────────────(ST_Within spatial join)────┼──────▶ airbnb_listings_with_zip
+                                                                                └──────▶ zip_airbnb_stress_summary
+```
+
+**Bronze → Silver** (clean & type each source independently, except Airbnb which is also joined):
+- `census_population.csv` → `census_population/`
+- `census_income.csv` → `census_income/`
+- `zillow_rent.csv` → `zillow_rent/`
+- `listings_NY.csv.gz` **+** `calendar_NY.csv.gz` → `airbnb_listings_enriched/` (inner join on `listing_id`)
+
+**Silver → Gold** (join & aggregate into business metrics):
+- `census_population/` **+** `census_income/` **+** `zillow_rent/` → **`market_rental_stress`** (inner join on `zip_code`, then rent burden + stress category)
+- `airbnb_listings_enriched/` → **`airbnb_borough_summary`** and **`airbnb_pressure`** (aggregated per borough)
+- `airbnb_listings_enriched/` **+** NYC ZIP GeoJSON **+** `market_rental_stress` → **`airbnb_listings_with_zip`** (Sedona `ST_Within` spatial join) and **`zip_airbnb_stress_summary`** (per-ZIP combined view)
 
 ---
 
@@ -283,13 +313,13 @@ This table is the result of cleaning **two** sources and joining them:
 
 ## Gold Tables Schema
 
-| Table | Grain | Key columns |
-|---|---|---|
-| `market_rental_stress` | one row per NY-state ZIP | `zip_code`, `median_income`, `market_rent`, `total_population`, `rent_burden_pct`, `stress_category` |
-| `airbnb_borough_summary` | one row per borough | `neighbourhood_group_cleansed`, `num_listings`, `avg_occupancy_pct`, `avg_host_listings`, `entire_home_pct` |
-| `airbnb_pressure` | one row per borough | `neighbourhood_group_cleansed`, `num_listings`, `avg_occupancy_pct`, `pressure_score` |
-| `airbnb_listings_with_zip` | one row per listing | `listing_id`, `zip_code`, `neighbourhood_group_cleansed`, `latitude`, `longitude`, `room_type`, `final_occupancy_rate` |
-| `zip_airbnb_stress_summary` | one row per ZIP (combined view) | `zip_code`, `neighbourhood_group_cleansed`, `rent_burden_pct`, `stress_category`, `median_income`, `market_rent`, `num_airbnb_listings`, `avg_occupancy_pct`, `entire_home_pct` |
+| Table | Built from | Grain | Key columns |
+|---|---|---|---|
+| `market_rental_stress` | `census_population/` + `census_income/` + `zillow_rent/` | one row per NY-state ZIP | `zip_code`, `median_income`, `market_rent`, `total_population`, `rent_burden_pct`, `stress_category` |
+| `airbnb_borough_summary` | `airbnb_listings_enriched/` | one row per borough | `neighbourhood_group_cleansed`, `num_listings`, `avg_occupancy_pct`, `avg_host_listings`, `entire_home_pct` |
+| `airbnb_pressure` | `airbnb_listings_enriched/` | one row per borough | `neighbourhood_group_cleansed`, `num_listings`, `avg_occupancy_pct`, `pressure_score` |
+| `airbnb_listings_with_zip` | `airbnb_listings_enriched/` + GeoJSON | one row per listing | `listing_id`, `zip_code`, `neighbourhood_group_cleansed`, `latitude`, `longitude`, `room_type`, `final_occupancy_rate` |
+| `zip_airbnb_stress_summary` | `airbnb_listings_with_zip` + `market_rental_stress` | one row per ZIP (combined view) | `zip_code`, `neighbourhood_group_cleansed`, `rent_burden_pct`, `stress_category`, `median_income`, `market_rent`, `num_airbnb_listings`, `avg_occupancy_pct`, `entire_home_pct` |
 
 ---
 
@@ -381,14 +411,23 @@ The 60s debounce matters because the scraper may download several files at once 
 
 ## Dashboard
 
-The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL and refreshes via a 5-minute cache TTL (`@st.cache_data(ttl=300)`). If the database is still empty, it shows a friendly *"Data not available yet"* message instead of crashing (**graceful degradation**). It contains six sections:
+The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL and refreshes via a 5-minute cache TTL (`@st.cache_data(ttl=300)`). On load it runs four `SELECT * FROM …` queries — `zip_airbnb_stress_summary`, `airbnb_borough_summary`, `airbnb_pressure`, `market_rental_stress` — plus the NYC ZIP GeoJSON for the map. If the database is still empty, it shows a friendly *"Data not available yet"* message instead of crashing (**graceful degradation**). It contains six sections:
 
-1. **KPI cards** — ZIP codes analyzed, affordable / stressed / severely stressed counts, total Airbnb listings.
-2. **Interactive rental-stress heatmap** — choropleth over NYC ZIP polygons, with a rent-burden filter slider.
-3. **Airbnb listings per borough** — horizontal bar chart, colored by average occupancy.
-4. **Airbnb Pressure Index per borough** — horizontal bar chart.
-5. **Top 10 most stressed ZIP codes** — sortable table.
-6. **Airbnb concentration vs rental stress** — scatter plot with stressed (30%) and severely-stressed (50%) threshold lines.
+1. **KPI cards** — affordable / stressed / severely-stressed counts and ZIP total from `market_rental_stress`; total Airbnb listings summed from `zip_airbnb_stress_summary`.
+2. **Interactive rental-stress heatmap** — choropleth from `market_rental_stress` (filtered by the rent-burden slider, with borough labels merged in from `zip_airbnb_stress_summary`), rendered over the NYC ZIP GeoJSON polygons.
+3. **Airbnb listings per borough** — horizontal bar chart from `airbnb_borough_summary`, colored by average occupancy.
+4. **Airbnb Pressure Index per borough** — horizontal bar chart from `airbnb_pressure`.
+5. **Top 10 most stressed ZIP codes** — table from `zip_airbnb_stress_summary`, sorted by `rent_burden_pct`.
+6. **Airbnb concentration vs rental stress** — scatter plot from `zip_airbnb_stress_summary` (`num_airbnb_listings` vs `rent_burden_pct`), with stressed (30%) and severely-stressed (50%) threshold lines.
+
+| Dashboard element | PostgreSQL table(s) used |
+|---|---|
+| KPI cards | `market_rental_stress` + `zip_airbnb_stress_summary` |
+| Rental-stress heatmap | `market_rental_stress` + `zip_airbnb_stress_summary` + GeoJSON |
+| Listings-per-borough bar | `airbnb_borough_summary` |
+| Pressure-index bar | `airbnb_pressure` |
+| Top-10 stressed ZIP table | `zip_airbnb_stress_summary` |
+| Concentration-vs-stress scatter | `zip_airbnb_stress_summary` |
 
 <p align="center">
   <img src="images/borough_bar_charts.png" width="800" alt="Borough Analysis">
