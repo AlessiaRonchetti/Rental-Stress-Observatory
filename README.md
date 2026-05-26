@@ -111,24 +111,54 @@ No single dataset captures rent, income, Airbnb activity *and* geography togethe
 
 ## Project Structure
 
-```
 Rental-Stress-Observatory/
-├── docker-compose.yml          # Defines all 7 services
-├── .env                        # Secret keys (not committed)
-├── pipeline/                   # Autonomous data pipeline
-│   ├── config.py               # Environment variables and constants
-│   ├── scraper.py              # Downloads data, publishes Kafka events
-│   ├── ingestion.py            # Uploads raw files to MinIO Bronze
-│   ├── processing.py           # Spark: Bronze → Silver → Gold
-│   ├── serving.py              # Spark: Gold Parquet → PostgreSQL
-│   ├── run_pipeline.py         # Orchestrates ingestion + processing + serving
-│   ├── pipeline_consumer.py    # Kafka consumer with debounce logic
-│   └── start.py                # Entry point: launches scraper + consumer threads
+├── docker-compose.yml              # Defines all 7 services
+├── .env                            # Secret keys and environment variables (not committed)
+├── .gitignore
+├── README.md
+│
+├── pipeline/                       # Autonomous data pipeline
+│   ├── __init__.py
+│   ├── config.py                   # Environment variables and constants
+│   ├── scraper.py                  # Downloads data and publishes Kafka events
+│   ├── ingestion.py                # Uploads raw files to MinIO Bronze
+│   ├── processing.py               # Spark: Bronze → Silver → Gold
+│   ├── serving.py                  # Spark: Gold Parquet → PostgreSQL
+│   ├── run_pipeline.py             # Orchestrates ingestion + processing + serving
+│   ├── pipeline_consumer.py        # Kafka consumer with 60s debounce logic
+│   └── start.py                    # Entry point: launches scraper + consumer threads
+│
 ├── app/
-│   └── dashboard.py            # Streamlit dashboard
-├── notebooks/                  # JupyterLab notebooks for exploration
-└── images/                     # Dashboard screenshots used in this README
-```
+│   ├── dashboard.py                # Streamlit dashboard
+│   └── .ipynb_checkpoints/
+│
+├── streamlit_app/                  # Additional Streamlit app folder, if used
+│
+├── data_raw/                       # Local raw data downloaded by scraper
+│   ├── listings_NY.csv.gz
+│   ├── calendar_NY.csv.gz
+│   ├── census_income.csv
+│   ├── census_population.csv
+│   ├── zillow_rent.csv
+│   ├── Zip_zori_uc_sfrcondomfr_sm_month.csv
+│   └── .scraper_state.json
+│
+├── minio_data/                     # Local persistent volume for MinIO object storage
+│
+├── spark_jars/                     # Required JAR dependencies for Spark/Sedona/PostgreSQL
+│   ├── aws-java-sdk-bundle-1.12.262.jar
+│   ├── hadoop-aws-3.3.4.jar
+│   ├── geotools-wrapper-1.6.1-28.2.jar
+│   ├── postgresql-42.6.0.jar
+│   └── sedona-spark-shaded-3.5_2.12-1.7.0.jar
+│
+├── notebooks/                      # Jupyter notebooks for exploration and validation
+│   ├── 00_ingestion.ipynb
+│   ├── 01_processing.ipynb
+│   ├── 02_serving_layer.ipynb
+│   └── .ipynb_checkpoints/
+│
+└── images/                         # Dashboard screenshots and README visual assets
 
 ---
 
