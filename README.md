@@ -128,7 +128,8 @@ Rental-Stress-Observatory/
 │   ├── serving.py                  # Spark: Gold Parquet → PostgreSQL
 │   ├── run_pipeline.py             # Orchestrates ingestion + processing + serving
 │   ├── pipeline_consumer.py        # Kafka consumer with 60s debounce logic
-│   └── start.py                    # Entry point: launches scraper + consumer threads
+│   ├── start.py                    # Entry point: launches scraper + consumer threads
+│   └── measure_runtime.py          # Measuring pipeline runtime
 │
 ├── app/
 │   ├── dashboard.py                # Streamlit dashboard
