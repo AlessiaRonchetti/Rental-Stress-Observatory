@@ -112,7 +112,7 @@ No single dataset captures rent, income, Airbnb activity *and* geography togethe
 
 ## Project Structure
 
-''' text 
+```text
 Rental-Stress-Observatory/
 ├── docker-compose.yml              # Defines all 7 services
 ├── .env                            # Secret keys and environment variables (not committed)
@@ -161,7 +161,7 @@ Rental-Stress-Observatory/
 │   └── .ipynb_checkpoints/
 │
 └── images/                         # Dashboard screenshots and README visual assets
-
+```
 ---
 
 ## Setup & Configuration
