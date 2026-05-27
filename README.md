@@ -112,32 +112,25 @@ No single dataset captures rent, income, Airbnb activity *and* geography togethe
 
 ## Project Structure
 
-```text
-Rental-Stress-Observatory/
-├── docker-compose.yml              # Defines all 7 services
-├── .env                            # Secret keys and environment variables
-├── .gitignore
-├── README.md
-│
-├── pipeline/
-│   ├── config.py
-│   ├── scraper.py
-│   ├── ingestion.py
-│   ├── processing.py
-│   ├── serving.py
-│   ├── run_pipeline.py
-│   ├── pipeline_consumer.py
-│   └── start.py
-│
-├── app/
-│   └── dashboard.py
-│
-├── data_raw/
-├── minio_data/
-├── spark_jars/
-├── notebooks/
-└── images/
 ```
+Rental-Stress-Observatory/
+├── docker-compose.yml          # Defines all 7 services
+├── .env                        # Secret keys (not committed)
+├── pipeline/                   # Autonomous data pipeline
+│   ├── config.py               # Environment variables and constants
+│   ├── scraper.py              # Downloads data, publishes Kafka events
+│   ├── ingestion.py            # Uploads raw files to MinIO Bronze
+│   ├── processing.py           # Spark: Bronze → Silver → Gold
+│   ├── serving.py              # Spark: Gold Parquet → PostgreSQL
+│   ├── run_pipeline.py         # Orchestrates ingestion + processing + serving
+│   ├── pipeline_consumer.py    # Kafka consumer with debounce logic
+│   └── start.py                # Entry point: launches scraper + consumer threads
+├── app/
+│   └── dashboard.py            # Streamlit dashboard
+├── notebooks/                  # JupyterLab notebooks for exploration
+└── images/                     # Dashboard screenshots used in this README
+```
+
 ---
 
 ## Setup & Configuration
@@ -372,7 +365,7 @@ pressure_score = (num_listings / max_listings_across_boroughs) × avg_occupancy_
 entire_home_pct = (entire_home_listings / total_listings) × 100
 ```
 
-Shows what share of a borough's Airbnb supply is fully removed from the long-term rental market (entire homes/apartments displace housing units in a way that private rooms do not).
+Shows what share of a borough's Airbnb supply is fully removed from the long-term rental market (entire homes/apartments displace housing units in a way that private rooms do not). Visualized as a per-borough bar chart in the dashboard.
 
 ---
 
@@ -418,21 +411,23 @@ The 60s debounce matters because the scraper may download several files at once 
 
 ## Dashboard
 
-The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL and refreshes via a 5-minute cache TTL (`@st.cache_data(ttl=300)`). On load it runs four `SELECT * FROM …` queries — `zip_airbnb_stress_summary`, `airbnb_borough_summary`, `airbnb_pressure`, `market_rental_stress` — plus the NYC ZIP GeoJSON for the map. If the database is still empty, it shows a friendly *"Data not available yet"* message instead of crashing (**graceful degradation**). It contains six sections:
+The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL and refreshes via a 5-minute cache TTL (`@st.cache_data(ttl=300)`). On load it runs four `SELECT * FROM …` queries — `zip_airbnb_stress_summary`, `airbnb_borough_summary`, `airbnb_pressure`, `market_rental_stress` — plus the NYC ZIP GeoJSON for the map. If the database is still empty, it shows a friendly *"Data not available yet"* message instead of crashing (**graceful degradation**). It contains seven sections:
 
 1. **KPI cards** — affordable / stressed / severely-stressed counts and ZIP total from `market_rental_stress`; total Airbnb listings summed from `zip_airbnb_stress_summary`.
 2. **Interactive rental-stress heatmap** — choropleth from `market_rental_stress` (filtered by the rent-burden slider, with borough labels merged in from `zip_airbnb_stress_summary`), rendered over the NYC ZIP GeoJSON polygons.
-3. **Airbnb listings per borough** — horizontal bar chart from `airbnb_borough_summary`, colored by average occupancy.
+3. **Airbnb listings per borough** — horizontal bar chart from `airbnb_borough_summary`, colored by average occupancy. The `avg_host_listings` index (average listings managed per host — a commercial-host signal) is surfaced in the bar tooltip.
 4. **Airbnb Pressure Index per borough** — horizontal bar chart from `airbnb_pressure`.
-5. **Top 10 most stressed ZIP codes** — table from `zip_airbnb_stress_summary`, sorted by `rent_burden_pct`.
-6. **Airbnb concentration vs rental stress** — scatter plot from `zip_airbnb_stress_summary` (`num_airbnb_listings` vs `rent_burden_pct`), with stressed (30%) and severely-stressed (50%) threshold lines.
+5. **Entire-Home % per borough** — horizontal bar chart from `airbnb_borough_summary` (`entire_home_pct`), showing the share of supply made of full units removed from the long-term rental market.
+6. **Top 10 most stressed ZIP codes** — table from `zip_airbnb_stress_summary`, sorted by `rent_burden_pct`.
+7. **Airbnb concentration vs rental stress** — scatter plot from `zip_airbnb_stress_summary` (`num_airbnb_listings` vs `rent_burden_pct`), with stressed (30%) and severely-stressed (50%) threshold lines.
 
 | Dashboard element | PostgreSQL table(s) used |
 |---|---|
 | KPI cards | `market_rental_stress` + `zip_airbnb_stress_summary` |
 | Rental-stress heatmap | `market_rental_stress` + `zip_airbnb_stress_summary` + GeoJSON |
-| Listings-per-borough bar | `airbnb_borough_summary` |
+| Listings-per-borough bar (+ `avg_host_listings` tooltip) | `airbnb_borough_summary` |
 | Pressure-index bar | `airbnb_pressure` |
+| Entire-Home % per-borough bar | `airbnb_borough_summary` |
 | Top-10 stressed ZIP table | `zip_airbnb_stress_summary` |
 | Concentration-vs-stress scatter | `zip_airbnb_stress_summary` |
 
