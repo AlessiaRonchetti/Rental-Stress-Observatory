@@ -161,7 +161,6 @@ Rental-Stress-Observatory/
 │
 └── images/                         # Dashboard screenshots and README visual assets
 
-
 ---
 
 ## Setup & Configuration
@@ -465,7 +464,7 @@ The Streamlit dashboard (`app/dashboard.py`) reads exclusively from PostgreSQL a
 <p align="center">
   <img src="images/borough_bar_charts.png" width="800" alt="Borough Analysis">
   <br>
-  <em>Figure 1: Airbnb listings per borough and Airbnb Pressure Index.</em>
+  <em>Figure 1: Airbnb listings per borough, Airbnb Pressure Index and %Entire Home Index.</em>
 </p>
 
 <p align="center">
