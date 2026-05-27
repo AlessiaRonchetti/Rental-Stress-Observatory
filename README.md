@@ -114,21 +114,30 @@ No single dataset captures rent, income, Airbnb activity *and* geography togethe
 
 ```
 Rental-Stress-Observatory/
-├── docker-compose.yml          # Defines all 7 services
-├── .env                        # Secret keys (not committed)
-├── pipeline/                   # Autonomous data pipeline
-│   ├── config.py               # Environment variables and constants
-│   ├── scraper.py              # Downloads data, publishes Kafka events
-│   ├── ingestion.py            # Uploads raw files to MinIO Bronze
-│   ├── processing.py           # Spark: Bronze → Silver → Gold
-│   ├── serving.py              # Spark: Gold Parquet → PostgreSQL
-│   ├── run_pipeline.py         # Orchestrates ingestion + processing + serving
-│   ├── pipeline_consumer.py    # Kafka consumer with debounce logic
-│   └── start.py                # Entry point: launches scraper + consumer threads
+├── docker-compose.yml              # Defines all 7 services
+├── .env                            # Secret keys and environment variables
+├── .gitignore
+├── README.md
+│
+├── pipeline/
+│   ├── config.py
+│   ├── scraper.py
+│   ├── ingestion.py
+│   ├── processing.py
+│   ├── serving.py
+│   ├── run_pipeline.py
+│   ├── pipeline_consumer.py
+│   └── start.py
+│
 ├── app/
-│   └── dashboard.py            # Streamlit dashboard
-├── notebooks/                  # JupyterLab notebooks for exploration
-└── images/                     # Dashboard screenshots used in this README
+│   └── dashboard.py
+│
+├── data_raw/
+├── minio_data/
+├── spark_jars/
+├── notebooks/
+└── images/
+
 ```
 
 ---
