@@ -186,7 +186,6 @@ def print_summary(results):
 
     print("=" * 70)
 
-    print("\nPowerPoint note:")
     print(
         "The scraper was excluded from the runtime benchmark because it "
         "runs as a scheduled background service and checks for dataset "
