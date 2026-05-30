@@ -1,4 +1,4 @@
 step,description,runtime_seconds,runtime_minutes,runtime_readable,status,notes,timestamp
-Bronze ingestion,Uploads raw files to MinIO Bronze layer,5.29,0.09,5.29 sec,success,Step completed successfully,2026-05-30 13:16:06
-Spark processing,Processes Bronze data into Silver and Gold layers,602.26,10.04,10 min 2.26 sec,success,Step completed successfully,2026-05-30 13:26:09
-PostgreSQL serving,Loads Gold data into PostgreSQL tables,37.41,0.62,37.41 sec,success,Step completed successfully,2026-05-30 13:26:46
+Bronze ingestion,Uploads raw files to MinIO Bronze layer,0.36,0.01,0.36 sec,success,Step completed successfully,2026-05-30 17:53:34
+Spark processing,Processes Bronze data into Silver and Gold layers,413.7,6.89,6 min 53.7 sec,success,Step completed successfully,2026-05-30 18:00:28
+PostgreSQL serving,Loads Gold data into PostgreSQL tables,20.62,0.34,20.62 sec,success,Step completed successfully,2026-05-30 18:00:48
