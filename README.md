@@ -124,7 +124,6 @@ Rental-Stress-Observatory/
 │   ├── config.py                   # Environment variables and constants
 │   ├── scraper.py                  # Downloads data and publishes Kafka events
 │   ├── ingestion.py                # Uploads raw files to MinIO Bronze
-│   ├── measure_runtime.py          # Measuring pipeline runtime
 │   ├── processing.py               # Spark: Bronze → Silver → Gold
 │   ├── serving.py                  # Spark: Gold Parquet → PostgreSQL
 │   ├── run_pipeline.py             # Orchestrates ingestion + processing + serving
