@@ -211,7 +211,7 @@ docker logs -f pipeline-runner
 | JupyterLab | http://localhost:8888 | token: `bigdata123` |
 | Spark UI | http://localhost:4040 | — |
 
-> ⚠️ The credentials above are **demo values** hard-coded for local use only. Do not reuse them in any non-local or production deployment.
+> The credentials above are **demo values** hard-coded for local use only. Do not reuse them in any non-local or production deployment.
 
 ### Reset Everything
 
