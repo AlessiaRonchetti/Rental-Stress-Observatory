@@ -40,6 +40,8 @@ JARS = {
         "https://repo1.maven.org/maven2/org/apache/sedona/sedona-spark-shaded-3.5_2.12/1.7.0/sedona-spark-shaded-3.5_2.12-1.7.0.jar",
     "geotools-wrapper-1.6.1-28.2.jar":
         "https://repo1.maven.org/maven2/org/datasyslab/geotools-wrapper/1.6.1-28.2/geotools-wrapper-1.6.1-28.2.jar",
+    "postgresql-42.6.0.jar":
+        "https://repo1.maven.org/maven2/org/postgresql/postgresql/42.6.0/postgresql-42.6.0.jar",
 }
 
 #JAR download
