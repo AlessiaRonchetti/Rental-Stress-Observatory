@@ -138,7 +138,7 @@ Rental-Stress-Observatory/
 │
 ├── streamlit_app/                  # Additional Streamlit app folder
 │
-├── data_raw/                       # Local raw data downloaded by scraper
+├── data/raw/                       # Local raw data downloaded by scraper
 │   ├── listings_NY.csv.gz
 │   ├── calendar_NY.csv.gz
 │   ├── census_income.csv
@@ -218,7 +218,7 @@ docker logs -f pipeline-runner
 Stops all services and deletes all data:
 
 ```sh
-docker-compose down -v && rm -rf minio_data/ data_raw/ spark_jars/
+docker-compose down -v && rm -rf minio_data/ data/raw/ spark_jars/
 ```
 
 ---
@@ -408,7 +408,7 @@ Shows what share of a borough's Airbnb supply is fully removed from the long-ter
 
 - **`config.py`** — Central configuration read from environment variables (Kafka/MinIO hosts, topic, 60s debounce, Census key, JDBC properties).
 - **`scraper.py`** — Checks each source every 24h and downloads only changed files. Resolves the dynamic Zillow URL via BeautifulSoup, picks the most recent joinable Inside Airbnb release (see the validation step below), and publishes a Kafka event on `pipeline.file-events`. Keeps `.scraper_state.json` for idempotency.
-- **`ingestion.py`** — Uploads raw files from `data_raw/` to MinIO under `bronze/`.
+- **`ingestion.py`** — Uploads raw files from `data/raw/` to MinIO under `bronze/`.
 - **`processing.py`** — Spark job for Silver and Gold. Cleans and types the data, runs the Sedona spatial join (`ST_Within`) to assign each listing a ZIP code, and computes the Gold metrics. Downloads required JARs (`hadoop-aws`, `aws-sdk`, `sedona`, `geotools`) at runtime. The NYC ZIP GeoJSON is fetched here at runtime and cached in `/tmp` — *not* via the scraper.
 - **`serving.py`** — Reads Gold Parquet from MinIO and writes the five tables to PostgreSQL via Spark JDBC (`.mode("overwrite")`, full-table replace).
 - **`run_pipeline.py`** — Orchestrates ingestion → processing → serving; aborts on the first failure to avoid partial writes.
