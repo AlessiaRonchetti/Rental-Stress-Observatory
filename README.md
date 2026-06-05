@@ -213,6 +213,56 @@ docker logs -f pipeline-runner
 
 > The credentials above are **demo values** hard-coded for local use only. Do not reuse them in any non-local or production deployment.
 
+### Running the Pipeline Manually
+
+By default the pipeline runs **automatically**: the scraper downloads data, publishes a Kafka event, and the debounced consumer triggers `run_pipeline.run()`. You normally never call anything by hand.
+
+For testing, debugging, or to force a run **without waiting for the 24h scraper cycle or the Kafka trigger**, you can execute the scripts directly inside the already-running `pipeline-runner` container with `docker exec`. Each pipeline module is an independent Python script with its own `if __name__ == "__main__"` entry point, so it can be run on its own.
+
+> All paths below are **inside the container**: `/opt/conda/bin/python` is the interpreter from the PySpark image (the one with all dependencies installed), and `/app` is the project root mounted via the `.:/app` volume. The `-it` flags give you a TTY so you see the logs live. The `pipeline-runner` container must already be up (`docker-compose up -d`).
+
+**Run the full pipeline** (ingestion → processing → serving), bypassing Kafka:
+
+```sh
+docker exec -it pipeline-runner /opt/conda/bin/python /app/pipeline/run_pipeline.py
+```
+
+**Run a single step** in isolation:
+
+```sh
+# Step 1 — upload local data/raw/ files to MinIO Bronze
+docker exec -it pipeline-runner /opt/conda/bin/python /app/pipeline/ingestion.py
+
+# Step 2 — Bronze → Silver → Gold (Spark + Sedona)
+docker exec -it pipeline-runner /opt/conda/bin/python /app/pipeline/processing.py
+
+# Step 3 — Gold (MinIO) → PostgreSQL (Spark JDBC)
+docker exec -it pipeline-runner /opt/conda/bin/python /app/pipeline/serving.py
+```
+
+> **Note on `run_pipeline.py` vs single steps:** `run_pipeline.py` executes `processing` and `serving` **in the same Python process**, so they share one JVM. The JVM classpath is fixed at the first `getOrCreate()` (in `processing`), which is why **every JAR needed by any step — including `postgresql-42.6.0.jar` — must be present in `processing.py`'s JAR list**, not only in `serving.py`. Run as standalone scripts, each module gets a **fresh JVM** and loads its own JARs, so `serving.py` works on its own even if only its local JAR list contains the Postgres driver. If `run_pipeline.py` fails at the serving step with `ClassNotFoundException: org.postgresql.Driver`, this shared-JVM classpath is the cause (see [Known Issues](#known-issues--solutions)).
+
+**Run the scraper on demand.** The scraper is the **trigger**, not an ETL step: it checks the sources, downloads any new data into `data/raw/`, and — if at least one source changed — publishes a Kafka event that makes the consumer launch the full pipeline. This is the *natural* way to manually kick off the automatic path end-to-end.
+
+```sh
+# One single check-and-download cycle, then exit (recommended for manual use).
+# Downloads new data and publishes a Kafka event if anything changed.
+docker exec -it pipeline-runner /opt/conda/bin/python -c "from pipeline.scraper import run_once; run_once()"
+```
+
+Running the module directly instead starts the **continuous loop** (`run_once()` immediately, then sleep `CHECK_INTERVAL_HOURS`, forever) — i.e. exactly what the container already does at startup via `start.py`:
+
+```sh
+# Continuous loop — blocks the terminal. Note: a scraper is ALREADY running
+# inside the container (start.py), so this launches a SECOND instance.
+docker exec -it pipeline-runner /opt/conda/bin/python /app/pipeline/scraper.py
+```
+
+> **Idempotency:** the scraper keeps `data/raw/.scraper_state.json` to remember what it already downloaded. If nothing changed since the last run it logs `No updates found - pipeline not triggered` and publishes **no** event. To force a fresh download + trigger, delete the state file first:
+> ```sh
+> docker exec -it pipeline-runner rm -f /app/data/raw/.scraper_state.json
+> ```
+
 ### Reset Everything
 
 Stops all services and deletes all data:
