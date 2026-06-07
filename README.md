@@ -53,7 +53,6 @@ The final output is a set of rental stress metrics per ZIP code and borough — 
 |---|---|
 | **Volume** | 36,445 Airbnb listings and **13M+ calendar rows** (365 days × listings), plus multiple administrative datasets, aggregated down to ZIP/borough level. |
 | **Variety** | Compressed CSV (Airbnb), monthly time-series CSV (Zillow), JSON from the Census API, GeoJSON polygons (NYC Open Data), and Parquet intermediate outputs. |
-| **Velocity** | Event-driven refresh: the scraper checks every 24h and a Kafka event triggers a full re-processing automatically when new data lands. |
 | **Complexity** | Cleaning, type casting, null handling, multi-source joins, a **geospatial join** (point-in-polygon over 441 polygons), aggregations, and dashboard serving. |
 
 No single dataset captures rent, income, Airbnb activity *and* geography together — the value of the project is in integrating them into one reproducible pipeline.
